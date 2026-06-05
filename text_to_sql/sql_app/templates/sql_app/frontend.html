@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Text-to-SQL</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f5f5f3;
+      color: #1a1a18;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container { max-width: 860px; margin: 0 auto; }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+    .header h1 { font-size: 18px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+    .header h1 svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.5; }
+    .table-pill {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 99px;
+      background: #EAF3DE;
+      color: #3B6D11;
+      font-weight: 500;
+    }
+
+    /* Input area */
+    .input-card {
+      background: #fff;
+      border: 0.5px solid rgba(0,0,0,0.1);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .input-row input {
+      flex: 1;
+      height: 40px;
+      padding: 0 14px;
+      border: 0.5px solid rgba(0,0,0,0.15);
+      border-radius: 8px;
+      font-size: 14px;
+      background: #fff;
+      color: #1a1a18;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .input-row input:focus { border-color: rgba(0,0,0,0.35); }
+    .input-row input:disabled { background: #f5f5f3; color: #73726c; }
+
+    .run-btn {
+      height: 40px;
+      padding: 0 20px;
+      border: 0.5px solid rgba(0,0,0,0.15);
+      border-radius: 8px;
+      background: #1a1a18;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+    }
+    .run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .run-btn:hover:not(:disabled) { opacity: 0.85; }
+
+    /* Suggestion chips */
+    .suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border: 0.5px solid rgba(0,0,0,0.12);
+      border-radius: 99px;
+      font-size: 12px;
+      color: #5f5e5a;
+      background: #f5f5f3;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .chip:hover { background: #eeedeb; }
+    .chip svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+    /* State: loading */
+    .loading-bar {
+      height: 2px;
+      background: #1a1a18;
+      border-radius: 1px;
+      margin-bottom: 1rem;
+      animation: loading 1.2s ease-in-out infinite;
+      transform-origin: left;
+      display: none;
+    }
+    @keyframes loading {
+      0%   { transform: scaleX(0);   opacity: 1; }
+      60%  { transform: scaleX(0.8); opacity: 1; }
+      100% { transform: scaleX(1);   opacity: 0; }
+    }
+
+    /* SQL block */
+    .sql-card {
+      background: #fff;
+      border: 0.5px solid rgba(0,0,0,0.1);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      display: none;
+    }
+    .sql-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .sql-label { font-size: 11px; font-weight: 500; color: #73726c; text-transform: uppercase; letter-spacing: 0.04em; }
+    .copy-sql-btn {
+      font-size: 11px;
+      color: #73726c;
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .copy-sql-btn:hover { background: #f5f5f3; }
+    .copy-sql-btn svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.5; }
+    pre#sql-display {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      color: #3d3d3a;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.6;
+    }
+
+    /* Error block */
+    .error-card {
+      background: #FCEBEB;
+      border: 0.5px solid rgba(162,45,45,0.2);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      display: none;
+    }
+    .error-card-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+    .error-card-header svg { width: 15px; height: 15px; stroke: #A32D2D; fill: none; stroke-width: 2; }
+    .error-title { font-size: 13px; font-weight: 500; color: #A32D2D; }
+    .error-reason { font-size: 13px; color: #791F1F; }
+    .blocked-sql { font-size: 11px; font-family: monospace; color: #A32D2D; margin-top: 8px; opacity: 0.7; }
+
+    /* Results table */
+    .results-card {
+      background: #fff;
+      border: 0.5px solid rgba(0,0,0,0.1);
+      border-radius: 12px;
+      overflow: hidden;
+      display: none;
+    }
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 1.25rem;
+      border-bottom: 0.5px solid rgba(0,0,0,0.08);
+    }
+    .row-count { font-size: 12px; color: #73726c; }
+    .csv-btn {
+      font-size: 11px;
+      color: #5f5e5a;
+      background: #f5f5f3;
+      border: 0.5px solid rgba(0,0,0,0.1);
+      border-radius: 6px;
+      padding: 3px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .csv-btn:hover { background: #eeedeb; }
+    .csv-btn svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.5; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      text-align: left;
+      padding: 8px 1.25rem;
+      background: #f9f9f7;
+      color: #73726c;
+      font-weight: 500;
+      border-bottom: 0.5px solid rgba(0,0,0,0.08);
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 9px 1.25rem;
+      color: #1a1a18;
+      border-bottom: 0.5px solid rgba(0,0,0,0.06);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #f9f9f7; }
+    .null-val { color: #b4b2a9; font-style: italic; }
+
+    /* Empty state */
+    .empty {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #9c9a92;
+      font-size: 14px;
+      display: none;
+    }
+    .empty svg { width: 32px; height: 32px; stroke: #d3d1c7; fill: none; stroke-width: 1; margin-bottom: 8px; display: block; margin: 0 auto 8px; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+      Text-to-SQL
+    </h1>
+    <span class="table-pill" id="table-count">Loading schema...</span>
+  </div>
+
+  <div class="input-card">
+    <div class="input-row">
+      <input
+        type="text"
+        id="question-input"
+        placeholder="Ask a question about your data..."
+        autocomplete="off"
+      />
+      <button class="run-btn" id="run-btn" onclick="runQuery()">Run query</button>
+    </div>
+    <div class="suggestions" id="suggestions">
+      <span class="chip" onclick="useQuestion(this)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Top products by revenue
+      </span>
+      <span class="chip" onclick="useQuestion(this)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        How many orders per customer?
+      </span>
+      <span class="chip" onclick="useQuestion(this)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Customers by country
+      </span>
+      <span class="chip" onclick="useQuestion(this)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Products with low stock
+      </span>
+      <span class="chip" onclick="useQuestion(this)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Total revenue by product category
+      </span>
+    </div>
+  </div>
+
+  <div class="loading-bar" id="loading-bar"></div>
+
+  <div class="error-card" id="error-card">
+    <div class="error-card-header">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span class="error-title">Query blocked by guardrail</span>
+    </div>
+    <p class="error-reason" id="error-reason"></p>
+    <p class="blocked-sql" id="blocked-sql"></p>
+  </div>
+
+  <div class="sql-card" id="sql-card">
+    <div class="sql-card-header">
+      <span class="sql-label">Generated SQL</span>
+      <button class="copy-sql-btn" onclick="copySql()" title="Copy SQL">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copy
+      </button>
+    </div>
+    <pre id="sql-display"></pre>
+  </div>
+
+  <div class="results-card" id="results-card">
+    <div class="results-header">
+      <span class="row-count" id="row-count"></span>
+      <button class="csv-btn" onclick="downloadCsv()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download CSV
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead id="results-head"></thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty-state">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      No rows matched your query
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const API_URL = '/api/query/';
+  let lastColumns = [];
+  let lastRows = [];
+
+  function useQuestion(chip) {
+    document.getElementById('question-input').value = chip.innerText.trim();
+    document.getElementById('question-input').focus();
+  }
+
+  function setLoading(on) {
+    const btn = document.getElementById('run-btn');
+    const bar = document.getElementById('loading-bar');
+    const input = document.getElementById('question-input');
+    btn.disabled = on;
+    input.disabled = on;
+    bar.style.display = on ? 'block' : 'none';
+    btn.textContent = on ? 'Running...' : 'Run query';
+  }
+
+  function hide(...ids) { ids.forEach(id => document.getElementById(id).style.display = 'none'); }
+  function show(id, display='block') { document.getElementById(id).style.display = display; }
+
+  async function runQuery() {
+    const question = document.getElementById('question-input').value.trim();
+    if (!question) return;
+
+    hide('error-card', 'sql-card', 'results-card');
+    setLoading(true);
+
+    try {
+      const resp = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      });
+      const data = await resp.json();
+
+      if (data.blocked) {
+        document.getElementById('error-reason').textContent = data.reason;
+        document.getElementById('blocked-sql').textContent = 'Generated SQL: ' + data.generated_sql;
+        show('error-card');
+        return;
+      }
+
+      // Show SQL
+      document.getElementById('sql-display').textContent = data.sql;
+      show('sql-card');
+
+      // Show results
+      lastColumns = data.columns;
+      lastRows = data.rows;
+
+      const count = data.row_count;
+      document.getElementById('row-count').textContent =
+        count === 0 ? 'No rows returned' :
+        count === 1 ? '1 row returned' :
+        `${count} rows returned`;
+
+      // Build table header
+      const thead = document.getElementById('results-head');
+      thead.innerHTML = '<tr>' + lastColumns.map(c => `<th>${escHtml(c)}</th>`).join('') + '</tr>';
+
+      // Build table body
+      const tbody = document.getElementById('results-body');
+      if (count === 0) {
+        tbody.innerHTML = '';
+        show('empty-state');
+      } else {
+        tbody.innerHTML = lastRows.map(row =>
+          '<tr>' + row.map(cell =>
+            cell === null
+              ? '<td class="null-val">null</td>'
+              : `<td>${escHtml(String(cell))}</td>`
+          ).join('') + '</tr>'
+        ).join('');
+        hide('empty-state');
+      }
+
+      show('results-card');
+
+    } catch (err) {
+      document.getElementById('error-reason').textContent = 'Network error: ' + err.message;
+      document.getElementById('blocked-sql').textContent = '';
+      show('error-card');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function copySql() {
+    const sql = document.getElementById('sql-display').textContent;
+    navigator.clipboard.writeText(sql).then(() => {
+      const btn = document.querySelector('.copy-sql-btn');
+      btn.innerHTML = btn.innerHTML.replace('Copy', 'Copied!');
+      setTimeout(() => btn.innerHTML = btn.innerHTML.replace('Copied!', 'Copy'), 1500);
+    });
+  }
+
+  function downloadCsv() {
+    if (!lastColumns.length) return;
+    const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = lastColumns.map(escape).join(',');
+    const body = lastRows.map(row => row.map(escape).join(',')).join('\n');
+    const blob = new Blob([header + '\n' + body], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'query_results.csv';
+    a.click();
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Load schema info for the pill badge
+  async function loadSchema() {
+    try {
+      const resp = await fetch('/api/schema/');
+      const data = await resp.json();
+      document.getElementById('table-count').textContent =
+        `${data.table_count} table${data.table_count !== 1 ? 's' : ''} available`;
+    } catch {
+      document.getElementById('table-count').textContent = 'Schema ready';
+    }
+  }
+
+  // Submit on Enter
+  document.getElementById('question-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runQuery();
+  });
+
+  loadSchema();
+</script>
+</body>
+</html>
